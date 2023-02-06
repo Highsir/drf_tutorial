@@ -1,8 +1,9 @@
 from django.contrib.auth.models import User
 from django.http import HttpResponse, JsonResponse, Http404
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, action, parser_classes, renderer_classes
 from rest_framework.parsers import JSONParser
+from rest_framework.renderers import TemplateHTMLRenderer, JSONRenderer
 from rest_framework.response import Response
 from rest_framework.status import HTTP_201_CREATED, HTTP_400_BAD_REQUEST, HTTP_204_NO_CONTENT
 from rest_framework.views import APIView
@@ -10,7 +11,7 @@ from rest_framework.views import APIView
 from snippets.models import Snippet
 from snippets.permissions import IsOwnerOrReadOnly
 from snippets.serializers import SnippetSerializer, UserSerializer
-from rest_framework import status, generics, mixins, reverse, renderers
+from rest_framework import status, generics, mixins, reverse, renderers, viewsets
 from rest_framework import permissions
 
 # @csrf_exempt
@@ -73,6 +74,7 @@ from rest_framework import permissions
 
 
 # @api_view(['GET', 'PUT', 'DELETE'])
+# @parser_classes([JSONParser])  # api_view与函数视图一起使用时，可以使用装饰器单独设置解析器
 # def snippet_detail(request, pk, format=None):
 #     """
 #     Retrieve, update or delete a code snippet.
@@ -172,38 +174,56 @@ from rest_framework import permissions
 
 
 # 使用通用的基于类的视图
-class SnippetList(generics.ListCreateAPIView):
-    queryset = Snippet.objects.all()
-    serializer_class = SnippetSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
-
-    def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
-
-
-class SnippetDetail(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Snippet.objects.all()
-    serializer_class = SnippetSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
-
-
-class UserList(generics.ListAPIView):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
+# class SnippetList(generics.ListCreateAPIView):
+#     queryset = Snippet.objects.all()
+#     serializer_class = SnippetSerializer
+#     permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
+#
+#     def perform_create(self, serializer):
+#         serializer.save(owner=self.request.user)
+#
+#
+# class SnippetDetail(generics.RetrieveUpdateDestroyAPIView):
+#     queryset = Snippet.objects.all()
+#     serializer_class = SnippetSerializer
+#     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
 
-class UserDetail(generics.RetrieveAPIView):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
+# class UserList(generics.ListAPIView):
+#     queryset = User.objects.all()
+#     serializer_class = UserSerializer
+#
+#
+# class UserDetail(generics.RetrieveAPIView):
+#     queryset = User.objects.all()
+#     serializer_class = UserSerializer
 
 
-class SnippetHighlight(generics.GenericAPIView):
-    queryset = Snippet.objects.all()
-    renderer_classes = [renderers.StaticHTMLRenderer]
+# class SnippetHighlight(generics.GenericAPIView):
+#     queryset = Snippet.objects.all()
+#     renderer_classes = [renderers.StaticHTMLRenderer]
+#
+#     def get(self, request, *args, **kwargs):
+#         snippet = self.get_object()
+#         return Response(snippet.highlighted)
 
-    def get(self, request, *args, **kwargs):
-        snippet = self.get_object()
-        return Response(snippet.highlighted)
+
+@api_view(['GET'])
+@renderer_classes([TemplateHTMLRenderer, JSONRenderer])
+def list_users(request):
+    """
+    系统中的用户可以返回JSON或HTML表示的视图。
+    :param request:
+    :return:
+    """
+    queryset = User.objects.filter(active=True)
+    if request.accepted_renderer.format == 'html':
+        data = {'user': queryset}
+        return Response(data, template_name='list_users.html')
+
+    serializer = UserSerializer(instance=queryset)
+    data = serializer.data
+    return Response(data)
 
 
 @api_view(['GET'])
@@ -212,3 +232,33 @@ def api_root(request, format=None):
         'users': reverse.reverse('user-list', request=request, format=format),
         'snippet': reverse.reverse('snippet-list', request=request, format=format)
     })
+
+
+# 使用视图集
+class UserViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+        This viewset automatically provides `list` and `retrieve` actions.
+    """
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    parser_classes = [JSONParser]
+
+
+class SnippetViewSet(viewsets.ModelViewSet):
+    """
+    This viewset automatically provides `list`, `create`, `retrieve`,
+    `update` and `destroy` actions.
+
+    Additionally we also provide an extra `highlight` action.
+    """
+    queryset = Snippet.objects.all()
+    serializer_class = SnippetSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
+
+    @action(detail=True, renderer_classes=[renderers.StaticHTMLRenderer])
+    def highlight(self, request, *args, **kwargs):
+        snippet = self.get_object()
+        return Response(snippet.highlighted)
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)

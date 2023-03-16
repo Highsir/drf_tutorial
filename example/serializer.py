@@ -13,8 +13,13 @@ class ExampleSerializer(serializers.HyperlinkedModelSerializer):
         fields = 'all'
 
 
+class EditItemSerializer(serializers.Serializer):
+    pass
+
+
 class CommentSerializer(serializers.Serializer):
-    user = UserSerializer()
+    user = UserSerializer(required=False)  # 如果嵌套表示可以选择性地接受None值，您应该将required=False标志传递给嵌套序列化程序。
+    edits = EditItemSerializer(many=True)  # 如果嵌套表示应该是项目列表，则应将many=True标志传递给嵌套序列化程序。
     email = serializers.EmailField()
     content = serializers.CharField(max_length=200)
     created = serializers.DateTimeField()
